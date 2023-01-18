@@ -84,6 +84,7 @@ import {
   scheduleMicrotask,
   prepareRendererToRender,
   resetRendererAfterRender,
+  getIsCurrentEventPopState,
 } from './ReactFiberHostConfig';
 
 import {
@@ -137,7 +138,7 @@ import {
   NoTimestamp,
   claimNextTransitionLane,
   claimNextRetryLane,
-  includesSyncLane,
+  includesSyncLaneOrForceSync,
   isSubsetOfLanes,
   mergeLanes,
   removeLanes,
@@ -147,6 +148,7 @@ import {
   includesOnlyTransitions,
   includesBlockingLane,
   includesExpiredLane,
+  isTransitionLane,
   getNextLanes,
   markStarvedLanesAsExpired,
   getLanesToRetrySynchronouslyOnError,
@@ -727,6 +729,7 @@ export function scheduleUpdateOnFiber(
   }
 
   // Mark that the root has a pending update.
+  markRootWithPopState(root, lane);
   markRootUpdated(root, lane, eventTime);
 
   if (
@@ -914,7 +917,7 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
       // TODO: Temporary until we confirm this warning is not fired.
       if (
         existingCallbackNode == null &&
-        !includesSyncLane(existingCallbackPriority)
+        !includesSyncLaneOrForceSync(existingCallbackPriority, root)
       ) {
         console.error(
           'Expected scheduled callback to exist. This error is likely caused by a bug in React. Please file an issue.',
@@ -932,7 +935,7 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
 
   // Schedule a new callback.
   let newCallbackNode;
-  if (includesSyncLane(newCallbackPriority)) {
+  if (includesSyncLaneOrForceSync(newCallbackPriority, root)) {
     // Special case: Sync React callbacks are scheduled on a special
     // internal queue
     if (root.tag === LegacyRoot) {
@@ -1455,6 +1458,12 @@ function markRootSuspended(root: FiberRoot, suspendedLanes: Lanes) {
   markRootSuspended_dontCallThisOneDirectly(root, suspendedLanes);
 }
 
+function markRootWithPopState(root: FiberRoot, updateLane: Lane) {
+  if (isTransitionLane(updateLane) && getIsCurrentEventPopState()) {
+    root.forceSync = true;
+  }
+}
+
 // This is the entry point for synchronous tasks that don't go
 // through Scheduler
 function performSyncWorkOnRoot(root: FiberRoot) {
@@ -1469,7 +1478,7 @@ function performSyncWorkOnRoot(root: FiberRoot) {
   flushPassiveEffects();
 
   let lanes = getNextLanes(root, NoLanes);
-  if (!includesSyncLane(lanes)) {
+  if (!includesSyncLaneOrForceSync(lanes, root)) {
     // There's no remaining sync work left.
     ensureRootIsScheduled(root, now());
     return null;
@@ -2920,13 +2929,16 @@ function commitRootImpl(
   // TODO: We can optimize this by not scheduling the callback earlier. Since we
   // currently schedule the callback in multiple places, will wait until those
   // are consolidated.
-  if (includesSyncLane(pendingPassiveEffectsLanes) && root.tag !== LegacyRoot) {
+  if (
+    includesSyncLaneOrForceSync(pendingPassiveEffectsLanes, root) &&
+    root.tag !== LegacyRoot
+  ) {
     flushPassiveEffects();
   }
 
   // Read this again, since a passive effect might have updated it
   remainingLanes = root.pendingLanes;
-  if (includesSyncLane(remainingLanes)) {
+  if (includesSyncLaneOrForceSync(remainingLanes, root)) {
     if (enableProfilerTimer && enableProfilerNestedUpdatePhase) {
       markNestedUpdateScheduled();
     }

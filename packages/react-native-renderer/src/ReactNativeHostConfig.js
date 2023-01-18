@@ -260,6 +260,10 @@ export function getCurrentEventPriority(): * {
   return DefaultEventPriority;
 }
 
+export function getIsCurrentEventPopState(): boolean {
+  return false;
+}
+
 // -------------------
 //     Mutation
 // -------------------

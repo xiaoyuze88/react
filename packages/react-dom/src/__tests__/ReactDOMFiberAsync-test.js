@@ -658,4 +658,84 @@ describe('ReactDOMFiberAsync', () => {
 
     expect(container.textContent).toBe('new');
   });
+
+  it('should synchronously render the transition lane in a popState', async () => {
+    function App() {
+      const [syncState, setSyncState] = React.useState(false);
+      const [hasNavigated, setHasNavigated] = React.useState(false);
+      function onPopstate() {
+        Scheduler.unstable_yieldValue(`popState`);
+        setSyncState(true);
+        React.startTransition(() => {
+          setHasNavigated(true);
+        });
+      }
+      React.useEffect(() => {
+        window.addEventListener('popstate', onPopstate);
+        return () => window.removeEventListener('popstate', onPopstate);
+      }, []);
+      Scheduler.unstable_yieldValue(`render:${hasNavigated}/${syncState}`);
+      return null;
+    }
+    const root = ReactDOMClient.createRoot(container);
+    await act(async () => {
+      root.render(<App />);
+    });
+    expect(Scheduler).toHaveYielded(['render:false/false']);
+
+    await act(async () => {
+      const popStateEvent = new Event('popstate');
+      window.dispatchEvent(popStateEvent);
+    });
+    expect(Scheduler).toHaveYielded(['popState', 'render:true/true']);
+
+    root.unmount();
+  });
+
+  it('transition lane in popState should still yield if it suspends', async () => {
+    const never = {then() {}};
+    let _setText;
+
+    function App() {
+      const [shouldSuspend, setShouldSuspend] = React.useState(false);
+      const [text, setText] = React.useState('0');
+      _setText = setText;
+      if (shouldSuspend) {
+        Scheduler.unstable_yieldValue('Suspend!');
+        throw never;
+      }
+      function onPopstate() {
+        Scheduler.unstable_yieldValue(`popState`);
+        React.startTransition(() => {
+          setShouldSuspend(val => !val);
+        });
+      }
+      React.useEffect(() => {
+        window.addEventListener('popstate', onPopstate);
+        return () => window.removeEventListener('popstate', onPopstate);
+      }, []);
+      Scheduler.unstable_yieldValue(`Child:${shouldSuspend}/${text}`);
+      return null;
+    }
+
+    const root = ReactDOMClient.createRoot(container);
+    await act(async () => {
+      root.render(<App />);
+    });
+    expect(Scheduler).toHaveYielded(['Child:false/0']);
+
+    await act(() => {
+      window.dispatchEvent(new Event('popstate'));
+    });
+    expect(Scheduler).toHaveYielded(['popState', 'Suspend!']);
+
+    await act(async () => {
+      _setText(true);
+    });
+
+    // Transition lane yields
+    expect(Scheduler).toHaveYielded(['Child:false/true', 'Suspend!']);
+
+    root.unmount();
+  });
 });

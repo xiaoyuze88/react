@@ -259,6 +259,8 @@ type BaseFiberRootProperties = {
   pooledCache: Cache | null,
   pooledCacheLanes: Lanes,
 
+  forceSync: boolean,
+
   // TODO: In Fizz, id generation is specific to each server config. Maybe we
   // should do this in Fiber, too? Deferring this decision for now because
   // there's no other place to store the prefix except for an internal field on

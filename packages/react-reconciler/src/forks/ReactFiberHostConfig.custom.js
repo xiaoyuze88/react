@@ -66,6 +66,8 @@ export const preparePortalMount = $$$hostConfig.preparePortalMount;
 export const prepareScopeUpdate = $$$hostConfig.prepareScopeUpdate;
 export const getInstanceFromScope = $$$hostConfig.getInstanceFromScope;
 export const getCurrentEventPriority = $$$hostConfig.getCurrentEventPriority;
+export const getIsCurrentEventPopState =
+  $$$hostConfig.getIsCurrentEventPopState;
 export const detachDeletedInstance = $$$hostConfig.detachDeletedInstance;
 export const requestPostPaintCallback = $$$hostConfig.requestPostPaintCallback;
 export const prepareRendererToRender = $$$hostConfig.prepareRendererToRender;

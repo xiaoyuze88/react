@@ -223,6 +223,10 @@ export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes {
         nextLanes = getHighestPriorityLanes(nonIdlePingedLanes);
       }
     }
+    // Batch transitions in `popstate` with the sync lane
+    if (root.forceSync && isTransitionLane(nonIdleUnblockedLanes)) {
+      nextLanes |= nonIdleUnblockedLanes & TransitionLanes;
+    }
   } else {
     // The only remaining work is Idle.
     const unblockedLanes = pendingLanes & ~suspendedLanes;
@@ -315,7 +319,6 @@ export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes {
       lanes &= ~lane;
     }
   }
-
   return nextLanes;
 }
 
@@ -471,8 +474,11 @@ export function getLanesToRetrySynchronouslyOnError(
   return NoLanes;
 }
 
-export function includesSyncLane(lanes: Lanes): boolean {
-  return (lanes & (SyncLane | SyncHydrationLane)) !== NoLanes;
+export function includesSyncLaneOrForceSync(
+  lanes: Lanes,
+  root: FiberRoot,
+): boolean {
+  return (lanes & (SyncLane | SyncHydrationLane)) !== NoLanes || root.forceSync;
 }
 
 export function includesNonIdleWork(lanes: Lanes): boolean {
@@ -633,6 +639,7 @@ export function markRootUpdated(
 export function markRootSuspended(root: FiberRoot, suspendedLanes: Lanes) {
   root.suspendedLanes |= suspendedLanes;
   root.pingedLanes &= ~suspendedLanes;
+  root.forceSync = false;
 
   // The suspended lanes are no longer CPU-bound. Clear their expiration times.
   const expirationTimes = root.expirationTimes;
@@ -670,6 +677,8 @@ export function markRootFinished(root: FiberRoot, remainingLanes: Lanes) {
   root.entangledLanes &= remainingLanes;
 
   root.errorRecoveryDisabledLanes &= remainingLanes;
+
+  root.forceSync = false;
 
   const entanglements = root.entanglements;
   const eventTimes = root.eventTimes;

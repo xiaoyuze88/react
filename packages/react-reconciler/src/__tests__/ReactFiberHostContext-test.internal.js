@@ -70,6 +70,9 @@ describe('ReactFiberHostContext', () => {
       getCurrentEventPriority: function() {
         return DefaultEventPriority;
       },
+      getIsCurrentEventPopState() {
+        return false;
+      },
       requestPostPaintCallback: function() {},
       prepareRendererToRender: function() {},
       resetRendererAfterRender: function() {},

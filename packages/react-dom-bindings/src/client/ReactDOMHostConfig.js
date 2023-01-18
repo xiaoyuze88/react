@@ -388,6 +388,10 @@ export function getCurrentEventPriority(): EventPriority {
   return getEventPriority(currentEvent.type);
 }
 
+export function getIsCurrentEventPopState(): boolean {
+  return window.event && window.event.type === 'popstate';
+}
+
 export const isPrimaryRenderer = true;
 export const warnsIfNotActing = true;
 // This initialization code may run even on server environments

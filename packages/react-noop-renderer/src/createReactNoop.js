@@ -442,6 +442,10 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
       return currentEventPriority;
     },
 
+    getIsCurrentEventPopState(): boolean {
+      return false;
+    },
+
     now: Scheduler.unstable_now,
 
     isPrimaryRenderer: true,
