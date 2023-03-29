@@ -383,6 +383,7 @@ export function commitBeforeMutationEffects(
   return shouldFire;
 }
 
+// 遍历处理待删除元素的 focus 状态，处理完执行 complete
 function commitBeforeMutationEffects_begin() {
   while (nextEffect !== null) {
     const fiber = nextEffect;
@@ -576,6 +577,7 @@ function commitBeforeMutationEffectsDeletion(deletion: Fiber) {
   }
 }
 
+// 依次执行 destroy
 function commitHookEffectListUnmount(
   flags: HookFlags,
   finishedWork: Fiber,
@@ -630,6 +632,8 @@ function commitHookEffectListUnmount(
 function commitHookEffectListMount(flags: HookFlags, finishedWork: Fiber) {
   const updateQueue: FunctionComponentUpdateQueue | null =
     (finishedWork.updateQueue: any);
+  // updateQueue 应该是个单向链表？
+  // 遍历整个单向链表，依次执行 create 函数，并将返回的 destroy 函数挂在 effect 上
   const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
   if (lastEffect !== null) {
     const firstEffect = lastEffect.next;
@@ -1829,6 +1833,7 @@ function commitPlacement(finishedWork: Fiber): void {
     // eslint-disable-next-line no-fallthrough
     case HostComponent: {
       const parent: Instance = parentFiber.stateNode;
+      // 根据 ContentReset effectTag重置文字节点
       if (parentFiber.flags & ContentReset) {
         // Reset the text content of the parent before doing any insertions
         resetTextContent(parent);
@@ -2496,11 +2501,14 @@ export function commitMutationEffects(
   inProgressRoot = null;
 }
 
+// 递归的执行effects
 function recursivelyTraverseMutationEffects(
   root: FiberRoot,
   parentFiber: Fiber,
   lanes: Lanes,
 ) {
+  // 先执行所有 deletion 操作
+
   // Deletions effects can be scheduled on any fiber type. They need to happen
   // before the children effects hae fired.
   const deletions = parentFiber.deletions;
@@ -2508,6 +2516,7 @@ function recursivelyTraverseMutationEffects(
     for (let i = 0; i < deletions.length; i++) {
       const childToDelete = deletions[i];
       try {
+        // 解绑 ref，调用 effect 的 destroy 方法，然后往下遍历依次对所有 child 执行一遍
         commitDeletionEffects(root, parentFiber, childToDelete);
       } catch (error) {
         captureCommitPhaseError(childToDelete, parentFiber, error);
@@ -2520,6 +2529,7 @@ function recursivelyTraverseMutationEffects(
     let child = parentFiber.child;
     while (child !== null) {
       setCurrentDebugFiberInDEV(child);
+      // 然后往下对所有 child 递归执行 effects
       commitMutationEffectsOnFiber(child, root, lanes);
       child = child.sibling;
     }
@@ -2546,10 +2556,13 @@ function commitMutationEffectsOnFiber(
     case MemoComponent:
     case SimpleMemoComponent: {
       recursivelyTraverseMutationEffects(root, finishedWork, lanes);
+      // 处理 Placement
       commitReconciliationEffects(finishedWork);
 
+      // 处理 Update
       if (flags & Update) {
         try {
+          // 依次执行 destroy
           commitHookEffectListUnmount(
             HookInsertion | HookHasEffect,
             finishedWork,
@@ -2562,6 +2575,7 @@ function commitMutationEffectsOnFiber(
         } catch (error) {
           captureCommitPhaseError(finishedWork, finishedWork.return, error);
         }
+        // layout effect 的 destroy 是在 mutation 阶段执行的，在 create 函数之前执行
         // Layout effects are destroyed during the mutation phase so that all
         // destroy functions for all fibers are called before any create functions.
         // This prevents sibling component effects from interfering with each other,
@@ -2726,6 +2740,7 @@ function commitMutationEffectsOnFiber(
         }
       }
     }
+    // 所有组件在最后都是以 HostComponent或者PureText落地到页面上的，最终写 dom 的逻辑会在 HostComponent 里的 commitUpdate 里面执行
     // eslint-disable-next-line-no-fallthrough
     case HostComponent: {
       recursivelyTraverseMutationEffects(root, finishedWork, lanes);

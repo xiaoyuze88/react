@@ -4019,7 +4019,8 @@ function beginWork(
         didReceiveUpdate = false;
       }
     }
-  } else {
+  }
+  else {
     didReceiveUpdate = false;
 
     if (getIsHydrating() && isForkedChild(workInProgress)) {

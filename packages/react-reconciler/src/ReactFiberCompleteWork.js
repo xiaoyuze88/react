@@ -1149,7 +1149,8 @@ function completeWork(
         if (current.ref !== workInProgress.ref) {
           markRef(workInProgress);
         }
-      } else {
+      }
+      else {
         if (!newProps) {
           if (workInProgress.stateNode === null) {
             throw new Error(
