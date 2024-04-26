@@ -251,6 +251,7 @@ export function resolveLazyComponentTag(Component: Function): WorkTag {
 }
 
 // This is used to create an alternate fiber to do work on.
+// 获得当前fiber的alternate，如果没有就克隆一个新的，如果有就整理干净，然后赋予最新状态
 export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
   let workInProgress = current.alternate;
   if (workInProgress === null) {

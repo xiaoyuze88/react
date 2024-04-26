@@ -264,6 +264,7 @@ const RootSuspendedWithDelay = 4;
 const RootCompleted = 5;
 
 // Describes where we are in the React execution stack
+// 执行上下文
 let executionContext: ExecutionContext = NoContext;
 // The root we're working on
 let workInProgressRoot: FiberRoot | null = null;
@@ -389,6 +390,10 @@ export function getCurrentTime() {
   return now();
 }
 
+// 根据 fiber 的mode，来决定当前用那种Lane优先级去执行
+// 调用更新api后，可能会更新当前执行上下文及更新的优先级（全局对象）
+// 其中 Scheduler 中有一个 currentPriorityLevel => SchedulerPriority
+// Reconciler 中也有一个 ReactPriorityLevel, ReactPriorityLevel <=> SchedulerPriority 之间有一个转换映射规则
 export function requestUpdateLane(fiber: Fiber): Lane {
   // Special cases
   const mode = fiber.mode;
@@ -429,6 +434,7 @@ export function requestUpdateLane(fiber: Fiber): Lane {
   // Our heuristic for that is whenever we enter a concurrent work loop.
   //
   // We'll do the same for `currentEventPendingLanes` below.
+  // 好像大概意思是：一个理论基础是，我们认为通过同一个事件触发的更新的优先级都是一致的
   if (currentEventWipLanes === NoLanes) {
     currentEventWipLanes = workInProgressRootIncludedLanes;
   }
@@ -522,6 +528,7 @@ export function scheduleUpdateOnFiber(
   checkForNestedUpdates();
   warnAboutRenderPhaseUpdatesInDEV(fiber);
 
+  // 更新fiber及alternate的lane为传入的lane，同时将所有父节点及各父节点的childLanes更新为传入lane，最后返回 FiberRoot
   const root = markUpdateLaneFromFiberToRoot(fiber, lane);
   if (root === null) {
     warnAboutUpdateOnUnmountedFiberInDEV(fiber);
@@ -529,8 +536,10 @@ export function scheduleUpdateOnFiber(
   }
 
   // Mark that the root has a pending update.
+  // 将 FiberRoot.pendingLanes 设置为当前lane
   markRootUpdated(root, lane, eventTime);
 
+  // 在更新过程中又触发了更新，会进入该分支，晚点再看
   if (root === workInProgressRoot) {
     // Received an update to a tree that's in the middle of rendering. Mark
     // that there was an interleaved update work on this root. Unless the
@@ -683,6 +692,8 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
     root,
     root === workInProgressRoot ? workInProgressRootRenderLanes : NoLanes,
   );
+
+  // TODO: 这个优先级怎么获取的还需要深入研究
   // This returns the priority level computed during the `getNextLanes` call.
   const newCallbackPriority = returnNextLanesPriority();
 
@@ -708,6 +719,7 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
     cancelCallback(existingCallbackNode);
   }
 
+  // TODO: 没太理解这个callback的作用，为什么退出一个循环之前要执行一次，挂一个callback在root上？
   // Schedule a new callback.
   let newCallbackNode;
   if (newCallbackPriority === SyncLanePriority) {
@@ -962,12 +974,14 @@ function markRootSuspended(root, suspendedLanes) {
 
 // This is the entry point for synchronous tasks that don't go
 // through Scheduler
+// 对 FiberRoot 执行同步操作
 function performSyncWorkOnRoot(root) {
   invariant(
     (executionContext & (RenderContext | CommitContext)) === NoContext,
     'Should not already be working.',
   );
 
+  // TODO: 晚点看
   flushPassiveEffects();
 
   let lanes;
@@ -998,6 +1012,7 @@ function performSyncWorkOnRoot(root) {
       exitStatus = renderRootSync(root, lanes);
     }
   } else {
+    // 获取下一个任务的优先级
     lanes = getNextLanes(root, NoLanes);
     exitStatus = renderRootSync(root, lanes);
   }
@@ -1298,6 +1313,7 @@ export function popRenderLanes(fiber: Fiber) {
   popFromStack(subtreeRenderLanesCursor, fiber);
 }
 
+// 准备一个干净的栈
 function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
   root.finishedWork = null;
   root.finishedLanes = NoLanes;
@@ -1311,6 +1327,7 @@ function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
     cancelTimeout(timeoutHandle);
   }
 
+  // 说明当前已经有一个循环才执行中，这里需要打断它们
   if (workInProgress !== null) {
     let interruptedWork = workInProgress.return;
     while (interruptedWork !== null) {
@@ -1400,6 +1417,7 @@ function handleError(root, thrownValue): void {
 
 function pushDispatcher() {
   const prevDispatcher = ReactCurrentDispatcher.current;
+  // 切换当前 Dispatcher 为 ContextOnlyDispatcher（看着是不允许使用hooks的dispatcher）
   ReactCurrentDispatcher.current = ContextOnlyDispatcher;
   if (prevDispatcher === null) {
     // The React isomorphic package does not include a default dispatcher.
@@ -1487,9 +1505,12 @@ export function renderHasNotSuspendedYet(): boolean {
   return workInProgressRootExitStatus === RootIncomplete;
 }
 
+// 核心构建Fiber树的逻辑
 function renderRootSync(root: FiberRoot, lanes: Lanes) {
   const prevExecutionContext = executionContext;
   executionContext |= RenderContext;
+
+  // 更新 Dispatcher，返回上一个
   const prevDispatcher = pushDispatcher();
 
   // If the root or lanes have changed, throw out the existing stack
@@ -1499,6 +1520,7 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
     startWorkOnPendingInteractions(root, lanes);
   }
 
+  // 不知道干嘛的，好像跟 ref 有关，先不管
   const prevInteractions = pushInteractions(root);
 
   if (__DEV__) {
@@ -1639,6 +1661,7 @@ function workLoopConcurrent() {
   }
 }
 
+// 核心任务，对当前 workInProgress Fiber 执行更新动作
 function performUnitOfWork(unitOfWork: Fiber): void {
   // The current, flushed, state of this fiber is the alternate. Ideally
   // nothing should rely on this, but relying on it here means that we don't
@@ -1667,6 +1690,8 @@ function performUnitOfWork(unitOfWork: Fiber): void {
   ReactCurrentOwner.current = null;
 }
 
+// 处理当前的 completeWork 之后，如果有 sibling，则设置 workInProgress = completeWork.sibling，继续走 beginWork
+// 如果没有兄弟了，继续对 completeWork.return 执行 completeWork
 function completeUnitOfWork(unitOfWork: Fiber): void {
   // Attempt to complete the current unit of work, then move to the next
   // sibling. If there are no more siblings, return to the parent fiber.
@@ -1732,6 +1757,8 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
         // Skip both NoWork and PerformedWork tags when creating the effect
         // list. PerformedWork effect is read by React DevTools but shouldn't be
         // committed.
+        // 意思是当前回溯节点是否有标记操作tag，PerformedWork/NoFlag 都代表无副作用
+        // 只要有标记副作用，就将当前节点Fiber标记在 returnFiber 的 effect 链中（跟hooks的effects不是一个概念）
         if (flags > PerformedWork) {
           if (returnFiber.lastEffect !== null) {
             returnFiber.lastEffect.nextEffect = completedWork;
@@ -2950,6 +2977,7 @@ function jnd(timeElapsed: number) {
     : ceil(timeElapsed / 1960) * 1960;
 }
 
+// TODO: 晚点再看，检查循环渲染的
 function checkForNestedUpdates() {
   if (nestedUpdateCount > NESTED_UPDATE_LIMIT) {
     nestedUpdateCount = 0;
@@ -3438,6 +3466,7 @@ function scheduleInteractions(
   }
 }
 
+// 晚点再看
 function schedulePendingInteractions(root: FiberRoot, lane: Lane | Lanes) {
   // This is called when work is scheduled on a root.
   // It associates the current interactions with the newly-scheduled expiration.

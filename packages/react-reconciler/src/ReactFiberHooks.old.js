@@ -157,6 +157,7 @@ type Dispatch<A> = A => void;
 let renderLanes: Lanes = NoLanes;
 // The work-in-progress fiber. I've named it differently to distinguish it from
 // the work-in-progress hook.
+// 当前正在处理的 workInProgressFiber
 let currentlyRenderingFiber: Fiber = (null: any);
 
 // Hooks are stored as a linked list on the fiber's memoizedState field. The
@@ -292,6 +293,7 @@ function throwInvalidHookError() {
   );
 }
 
+// 核心比较方法
 function areHookInputsEqual(
   nextDeps: Array<mixed>,
   prevDeps: Array<mixed> | null,
@@ -304,6 +306,7 @@ function areHookInputsEqual(
   }
 
   if (prevDeps === null) {
+    // 因为只有 nextDeps 为 null 才会进入，所以当发现 prevDeps 为空会告警
     if (__DEV__) {
       console.error(
         '%s received a final argument during this render, but not during ' +
@@ -316,6 +319,7 @@ function areHookInputsEqual(
   }
 
   if (__DEV__) {
+    // deps长度发生变化也会告警
     // Don't bother comparing lengths in prod because these arrays should be
     // passed inline.
     if (nextDeps.length !== prevDeps.length) {
@@ -330,6 +334,8 @@ function areHookInputsEqual(
       );
     }
   }
+
+  // 依次通过 Object.is 比较 deps 各值
   for (let i = 0; i < prevDeps.length && i < nextDeps.length; i++) {
     if (is(nextDeps[i], prevDeps[i])) {
       continue;
@@ -340,7 +346,7 @@ function areHookInputsEqual(
 }
 
 export function renderWithHooks<Props, SecondArg>(
-  current: Fiber | null,
+  current: Fiber | null, // 当前
   workInProgress: Fiber,
   Component: (p: Props, arg: SecondArg) => any,
   props: Props,
@@ -361,6 +367,7 @@ export function renderWithHooks<Props, SecondArg>(
       current !== null && current.type !== workInProgress.type;
   }
 
+  // 重置 memorizedState (Hook)，如果已经mount那么状态维护在 current 上
   workInProgress.memoizedState = null;
   workInProgress.updateQueue = null;
   workInProgress.lanes = NoLanes;
@@ -549,13 +556,21 @@ function mountWorkInProgressHook(): Hook {
   return workInProgressHook;
 }
 
+
 function updateWorkInProgressHook(): Hook {
   // This function is used both for updates and for re-renders triggered by a
   // render phase update. It assumes there is either a current hook we can
   // clone, or a work-in-progress hook from a previous render pass that we can
   // use as a base. When we reach the end of the base list, we must switch to
   // the dispatcher used for mounts.
+
+  // currentFiber.alternate.memoizedState
   let nextCurrentHook: null | Hook;
+
+  // 如果 currentHook 为空
+  // 1. 找到 currentFiber.alternate
+  // 2. 从上面找到对应的 memorizedState => hook，如果没有则设为null
+  // 如果 currentHook 有值，则指针后移
   if (currentHook === null) {
     const current = currentlyRenderingFiber.alternate;
     if (current !== null) {
@@ -567,7 +582,9 @@ function updateWorkInProgressHook(): Hook {
     nextCurrentHook = currentHook.next;
   }
 
+  // currentFiber.memoizedState
   let nextWorkInProgressHook: null | Hook;
+
   if (workInProgressHook === null) {
     nextWorkInProgressHook = currentlyRenderingFiber.memoizedState;
   } else {
@@ -1680,8 +1697,15 @@ function dispatchAction<S, A>(
   queue.pending = update;
 
   const alternate = fiber.alternate;
+
+  // 传进来的 fiber 是调用 function 时候的 currentRenderingFiber，即当时的 workInProgress。如果这一轮渲染完成，即是将来调用时的 current
+  // 所以这个 fiber 有可能等于 currentRenderingFiber（说明当前渲染未结束时触发的，因为渲染完成后 fiber 为 current，不等于 workInProgress ，即 renderPhraseUpdate）
+  // 也有可能不等于 currentRenderingFiber，说明上一轮渲染已 commit，这是下一轮 render 时触发的
   if (
+    // fiber 等于 workInProgress
     fiber === currentlyRenderingFiber ||
+    // TODO: 好像说不通？后面看看
+    // currentlyRenderingFiber 一定是 workInProgress，如果 fiber.alternate 等于 workInProgress，说明传进来的 fiber 是 current
     (alternate !== null && alternate === currentlyRenderingFiber)
   ) {
     // This is a render phase update. Stash it in a lazily-created map of
@@ -1696,6 +1720,10 @@ function dispatchAction<S, A>(
       // The queue is currently empty, which means we can eagerly compute the
       // next state before entering the render phase. If the new state is the
       // same as the current state, we may be able to bail out entirely.
+      
+      // lastRenderedReducer，当前这次渲染时拿到的最新的 reducer 的引用，里面包括最新的上下文值
+      // lastRenderedState 为上一次渲染的结果
+      // lastRenderedReducer仅在这里使用，当前队列为空？时，如果有设置 lastRenderedReducer，我们可以提前计算其是否与上一次渲染结果相等（通过Object.is判断），如果是的话那么直接跳过，不需要走 scheduleUpdateOnFiber
       const lastRenderedReducer = queue.lastRenderedReducer;
       if (lastRenderedReducer !== null) {
         let prevDispatcher;
@@ -1751,6 +1779,9 @@ function dispatchAction<S, A>(
     markStateUpdateScheduled(fiber, lane);
   }
 }
+
+// 这里有4种 dispatcher，每种需要处理的上下文和策略都不一样，包括：
+// ContextOnlyDispatcher/MountDispatcher/UpdateDispatcher/RerenderDispatcher
 
 export const ContextOnlyDispatcher: Dispatcher = {
   readContext,

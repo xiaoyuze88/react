@@ -234,7 +234,7 @@ function getRollupOutputOptions(
     freeze: !isProduction,
     interop: false,
     name: globalName,
-    sourcemap: false,
+    sourcemap: true,
     esModule: false,
   };
 }
@@ -338,10 +338,13 @@ function getPlugins(
   pureExternalModules,
   bundle
 ) {
+  const localDebugging = true;
+
   const findAndRecordErrorCodes = extractErrorCodes(errorCodeOpts);
   const forks = Modules.getForks(bundleType, entry, moduleType, bundle);
-  const isProduction = isProductionBundleType(bundleType);
-  const isProfiling = isProfilingBundleType(bundleType);
+  const isProduction = !localDebugging && isProductionBundleType(bundleType);
+  // const isProfiling = isProfilingBundleType(bundleType);
+  const isProfiling = false;
   const isUMDBundle =
     bundleType === UMD_DEV ||
     bundleType === UMD_PROD ||
@@ -358,7 +361,7 @@ function getPlugins(
     bundleType === RN_FB_PROD ||
     bundleType === RN_FB_PROFILING;
   const shouldStayReadable = isFBWWWBundle || isRNBundle || forcePrettyOutput;
-  return [
+  const plugins = [
     // Extract error codes from invariant() messages into a file.
     shouldExtractErrors && {
       transform(source) {
@@ -389,7 +392,7 @@ function getPlugins(
       )
     ),
     // Remove 'use strict' from individual source files.
-    {
+    !localDebugging && {
       transform(source) {
         return source.replace(/['"]use strict["']/g, '');
       },
@@ -397,7 +400,8 @@ function getPlugins(
     // Turn __DEV__ and process.env checks into constants.
     replace({
       __DEV__: isProduction ? 'false' : 'true',
-      __PROFILE__: isProfiling || !isProduction ? 'true' : 'false',
+      // __PROFILE__: isProfiling || !isProduction ? 'true' : 'false',
+      __PROFILE__: 'false',
       __UMD__: isUMDBundle ? 'true' : 'false',
       'process.env.NODE_ENV': isProduction ? "'production'" : "'development'",
       __EXPERIMENTAL__,
@@ -423,7 +427,7 @@ function getPlugins(
     // Note that this plugin must be called after closure applies DCE.
     isProduction && stripUnusedImports(pureExternalModules),
     // Add the whitespace back if necessary.
-    shouldStayReadable &&
+    !localDebugging && shouldStayReadable &&
       prettier({
         parser: 'babel',
         singleQuote: false,
@@ -431,7 +435,7 @@ function getPlugins(
         bracketSpacing: true,
       }),
     // License and haste headers, top-level `if` blocks.
-    {
+    !localDebugging && {
       renderChunk(source) {
         return Wrappers.wrapBundle(
           source,
@@ -461,6 +465,8 @@ function getPlugins(
       },
     }),
   ].filter(Boolean);
+
+  return plugins;
 }
 
 function shouldSkipBundle(bundle, bundleType) {

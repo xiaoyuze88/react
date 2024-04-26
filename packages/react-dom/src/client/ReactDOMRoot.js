@@ -117,6 +117,7 @@ ReactDOMRoot.prototype.unmount = ReactDOMBlockingRoot.prototype.unmount = functi
   });
 };
 
+// 生成并返回 FiberRoot
 function createRootImpl(
   container: Container,
   tag: RootTag,
@@ -131,10 +132,17 @@ function createRootImpl(
       options.hydrationOptions != null &&
       options.hydrationOptions.mutableSources) ||
     null;
+    // FiberRoot: 用来存一些全局变量
+    // FiberRoot.current = HostRootFiber: 整个 Fiber 树的根
+    // HostRootFiber.stateNode = FiberRoot
   const root = createContainer(container, tag, hydrate, hydrationCallbacks);
+
+  // container[InternalKey] = FiberRoot.current = HostRootFiber
   markContainerAsRoot(root.current, container);
+
   const containerNodeType = container.nodeType;
 
+  // 是否代理合成事件
   if (enableEagerRootListeners) {
     const rootContainerElement =
       container.nodeType === COMMENT_NODE ? container.parentNode : container;

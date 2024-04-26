@@ -272,6 +272,8 @@ function resolveLazyType<T, P>(
 // a compiler or we can do it manually. Helpers that don't need this branching
 // live outside of this function.
 function ChildReconciler(shouldTrackSideEffects) {
+  // 看着只是在 return 上记录 effect，但是在哪里实际删除该 fiber 的呢？
+  // 不需要实际执行，本身就只是个链表，仅需要断开链接即可
   function deleteChild(returnFiber: Fiber, childToDelete: Fiber): void {
     if (!shouldTrackSideEffects) {
       // Noop.
@@ -570,6 +572,8 @@ function ChildReconciler(shouldTrackSideEffects) {
     return null;
   }
 
+  // key 不一致则返回 null
+  // type 一致则调用 useFiber update，否则调用 create 创建新 fiber
   function updateSlot(
     returnFiber: Fiber,
     oldFiber: Fiber | null,
@@ -663,6 +667,7 @@ function ChildReconciler(shouldTrackSideEffects) {
         case REACT_ELEMENT_TYPE: {
           const matchedFiber =
             existingChildren.get(
+              // 不设置key，这里完全有可能出bug！
               newChild.key === null ? newIdx : newChild.key,
             ) || null;
           if (newChild.type === REACT_FRAGMENT_TYPE) {
@@ -816,12 +821,14 @@ function ChildReconciler(shouldTrackSideEffects) {
       } else {
         nextOldFiber = oldFiber.sibling;
       }
+      // 根据 oldFiber 和 newElement 比较，拿到新的 fiber，如果为null表示key不一致
       const newFiber = updateSlot(
         returnFiber,
         oldFiber,
         newChildren[newIdx],
         lanes,
       );
+      // key 不一致，退出循环
       if (newFiber === null) {
         // TODO: This breaks on empty slots like null children. That's
         // unfortunate because it triggers the slow path all the time. We need
@@ -1193,6 +1200,7 @@ function ChildReconciler(shouldTrackSideEffects) {
                 ? isCompatibleFamilyForHotReloading(child, element)
                 : false)
             ) {
+              // 因为新的 ReactElement 是 singleElement，所以如果旧 fiber 有 sibling，全部删掉
               deleteRemainingChildren(returnFiber, child.sibling);
               const existing = useFiber(child, element.props);
               existing.ref = coerceRef(returnFiber, child, element);
@@ -1207,6 +1215,7 @@ function ChildReconciler(shouldTrackSideEffects) {
           }
         }
         // Didn't match.
+        // 不匹配，则将旧 fiber 即其所有sibling全部删掉
         deleteRemainingChildren(returnFiber, child);
         break;
       } else {

@@ -287,6 +287,8 @@ const classComponentUpdater = {
   },
 };
 
+// 如果有 shouldComponentUpdate，则调用并返回
+// 如果没有，判断是否是 pureComponent，如果是的话对 props/state 进行浅对比（只比较第一层）
 function checkShouldComponentUpdate(
   workInProgress,
   ctor,

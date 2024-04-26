@@ -162,6 +162,7 @@ export function initializeUpdateQueue<State>(fiber: Fiber): void {
   fiber.updateQueue = queue;
 }
 
+// 对比workInProgress.updateQueue 和 current.updateQueue，如果是同一个对象就克隆一份给 workInProgress 断开指向
 export function cloneUpdateQueue<State>(
   current: Fiber,
   workInProgress: Fiber,
@@ -317,6 +318,7 @@ function getStateFromUpdate<State>(
   instance: any,
 ): any {
   switch (update.tag) {
+    // 调用 this.replaceState 时触发
     case ReplaceState: {
       const payload = update.payload;
       if (typeof payload === 'function') {
@@ -344,10 +346,12 @@ function getStateFromUpdate<State>(
       // State object
       return payload;
     }
+    // 捕获更新，由 Error Boundaries 捕获时触发
     case CaptureUpdate: {
       workInProgress.flags =
         (workInProgress.flags & ~ShouldCapture) | DidCapture;
     }
+    // 调用 this.setState 时触发
     // Intentional fallthrough
     case UpdateState: {
       const payload = update.payload;
@@ -383,6 +387,7 @@ function getStateFromUpdate<State>(
       // Merge the partial state and the previous state.
       return Object.assign({}, prevState, partialState);
     }
+    // 调用 this.forceUpdate 时触发
     case ForceUpdate: {
       hasForceUpdate = true;
       return prevState;
@@ -420,11 +425,14 @@ export function processUpdateQueue<State>(
     const firstPendingUpdate = lastPendingUpdate.next;
     lastPendingUpdate.next = null;
     // Append pending updates to base queue
+    // lastBaseUpdate为空表示firstBaseUpdate/lastBaseUpdate 都为空，即没有当前 Update
+    // 直接将 firstBaseUpdate 指向 firstPendingUpdate
     if (lastBaseUpdate === null) {
       firstBaseUpdate = firstPendingUpdate;
-    } else {
+    } else { // 否则说明当前有 update，将 firstPendingUpdate 挂在 lastBaseUpdate 后面
       lastBaseUpdate.next = firstPendingUpdate;
     }
+    // 最后的直接指向最后一个 lastPendingUpdate
     lastBaseUpdate = lastPendingUpdate;
 
     // If there's a current queue, and it's different from the base queue, then
@@ -437,6 +445,10 @@ export function processUpdateQueue<State>(
       // This is always non-null on a ClassComponent or HostRoot
       const currentQueue: UpdateQueue<State> = (current.updateQueue: any);
       const currentLastBaseUpdate = currentQueue.lastBaseUpdate;
+
+      // 如果 current 上的 lastBaseUpdate 跟 alternative 上的 lastBaseUpdate 不一致
+      // TODO: vinson 为什么要同步给 current？
+      // 跟 concurrent mode 有关，主要来源于当前渲染与之前的渲染产生了分歧，为了保持最后的更新结果的一致性，需要同步这个更新队列
       if (currentLastBaseUpdate !== lastBaseUpdate) {
         if (currentLastBaseUpdate === null) {
           currentQueue.firstBaseUpdate = firstPendingUpdate;
@@ -464,6 +476,8 @@ export function processUpdateQueue<State>(
     do {
       const updateLane = update.lane;
       const updateEventTime = update.eventTime;
+
+      // 当前 update 并不在 renderLanes 中（不够权限执行）
       if (!isSubsetOfLanes(renderLanes, updateLane)) {
         // Priority is insufficient. Skip this update. If this is the first
         // skipped update, the previous update/state is the new base

@@ -207,6 +207,7 @@ import {disableLogs, reenableLogs} from 'shared/ConsolePatchingDev';
 
 const ReactCurrentOwner = ReactSharedInternals.ReactCurrentOwner;
 
+// 这个变量 ClassComponent 未用到，FC有用到，晚点再看有啥用
 let didReceiveUpdate: boolean = false;
 
 let didWarnAboutBadClass;
@@ -700,8 +701,8 @@ function markRef(current: Fiber | null, workInProgress: Fiber) {
 }
 
 function updateFunctionComponent(
-  current,
-  workInProgress,
+  current, // 当前 fiber
+  workInProgress, // current.alternate
   Component,
   nextProps: any,
   renderLanes,
@@ -1073,6 +1074,7 @@ function updateHostRoot(current, workInProgress, renderLanes) {
     return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
   }
   const root: FiberRoot = workInProgress.stateNode;
+  
   if (root.hydrate && enterHydrationState(workInProgress)) {
     // If we don't have any current children this might be the first pass.
     // We always try to hydrate. If this isn't a hydration pass there won't
@@ -3081,8 +3083,8 @@ function remountFiber(
 }
 
 function beginWork(
-  current: Fiber | null,
-  workInProgress: Fiber,
+  current: Fiber | null, // 当前 fiber，mount时没有
+  workInProgress: Fiber, // 正在处理更新的 fiber
   renderLanes: Lanes,
 ): Fiber | null {
   const updateLanes = workInProgress.lanes;
@@ -3320,6 +3322,7 @@ function beginWork(
 
   switch (workInProgress.tag) {
     case IndeterminateComponent: {
+      // function 初始化时是这个tag
       return mountIndeterminateComponent(
         current,
         workInProgress,

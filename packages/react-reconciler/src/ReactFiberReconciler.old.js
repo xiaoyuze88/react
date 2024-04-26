@@ -249,6 +249,7 @@ export function createContainer(
 
 export function updateContainer(
   element: ReactNodeList,
+  // FiberRoot
   container: OpaqueRoot,
   parentComponent: ?React$Component<any, any>,
   callback: ?Function,
@@ -256,6 +257,7 @@ export function updateContainer(
   if (__DEV__) {
     onScheduleRoot(container, element);
   }
+  // FiberRoot.current = HostRootFiber，指向当前的Fiber树
   const current = container.current;
   const eventTime = requestEventTime();
   if (__DEV__) {
@@ -271,6 +273,7 @@ export function updateContainer(
     markRenderScheduled(lane);
   }
 
+  // 通过 parentComponent 获取context，挂在 container（FiberRoot）上
   const context = getContextForSubtree(parentComponent);
   if (container.context === null) {
     container.context = context;
@@ -314,7 +317,9 @@ export function updateContainer(
     update.callback = callback;
   }
 
+  // 将当前 update 对象挂在 fiber 上，细节后面再看
   enqueueUpdate(current, update);
+  // 启动核心循环
   scheduleUpdateOnFiber(current, lane, eventTime);
 
   return lane;
