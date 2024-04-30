@@ -842,6 +842,7 @@ function completeWork(
           // the commit side-effects on the root.
           markUpdate(workInProgress);
         } else if (!fiberRoot.hydrate) {
+          // TODO: vinson 有空仔细看看这里是在干嘛
           // Schedule an effect to clear this container at the start of the next commit.
           // This handles the case of React rendering into a container with previous children.
           // It's also safe to do for updates too, because current.child would only be null

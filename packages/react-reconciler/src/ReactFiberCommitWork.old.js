@@ -198,6 +198,7 @@ function safelyDetachRef(current: Fiber) {
   }
 }
 
+// 直接调用destroy回调
 function safelyCallDestroy(current: Fiber, destroy: () => void) {
   if (__DEV__) {
     invokeGuardedCallback(null, destroy, null);
@@ -887,6 +888,7 @@ function commitUnmount(
             const {destroy, tag} = effect;
             if (destroy !== undefined) {
               if ((tag & HookPassive) !== NoHookEffect) {
+                // 如果有 useEffect，推入 pendingPassiveHookEffectsUnmount，等待 flushPassiveEffects 时集中处理
                 enqueuePendingPassiveHookEffectUnmount(current, effect);
               } else {
                 if (
@@ -898,6 +900,7 @@ function commitUnmount(
                   safelyCallDestroy(current, destroy);
                   recordLayoutEffectDuration(current);
                 } else {
+                  // layoutEffect 可以直接调用 destroy，TODO: vinson but why?
                   safelyCallDestroy(current, destroy);
                 }
               }
@@ -1431,69 +1434,70 @@ function commitDeletion(
 }
 
 function commitWork(current: Fiber | null, finishedWork: Fiber): void {
-  if (!supportsMutation) {
-    switch (finishedWork.tag) {
-      case FunctionComponent:
-      case ForwardRef:
-      case MemoComponent:
-      case SimpleMemoComponent:
-      case Block: {
-        // Layout effects are destroyed during the mutation phase so that all
-        // destroy functions for all fibers are called before any create functions.
-        // This prevents sibling component effects from interfering with each other,
-        // e.g. a destroy function in one component should never override a ref set
-        // by a create function in another component during the same commit.
-        if (
-          enableProfilerTimer &&
-          enableProfilerCommitHooks &&
-          finishedWork.mode & ProfileMode
-        ) {
-          try {
-            startLayoutEffectTimer();
-            commitHookEffectListUnmount(
-              HookLayout | HookHasEffect,
-              finishedWork,
-            );
-          } finally {
-            recordLayoutEffectDuration(finishedWork);
-          }
-        } else {
-          commitHookEffectListUnmount(HookLayout | HookHasEffect, finishedWork);
-        }
-        return;
-      }
-      case Profiler: {
-        return;
-      }
-      case SuspenseComponent: {
-        commitSuspenseComponent(finishedWork);
-        attachSuspenseRetryListeners(finishedWork);
-        return;
-      }
-      case SuspenseListComponent: {
-        attachSuspenseRetryListeners(finishedWork);
-        return;
-      }
-      case HostRoot: {
-        if (supportsHydration) {
-          const root: FiberRoot = finishedWork.stateNode;
-          if (root.hydrate) {
-            // We've just hydrated. No need to hydrate again.
-            root.hydrate = false;
-            commitHydratedContainer(root.containerInfo);
-          }
-        }
-        break;
-      }
-      case OffscreenComponent:
-      case LegacyHiddenComponent: {
-        return;
-      }
-    }
+  // react dom supportsMutation = true，整个分支可以忽略
+  // if (!supportsMutation) {
+  //   switch (finishedWork.tag) {
+  //     case FunctionComponent:
+  //     case ForwardRef:
+  //     case MemoComponent:
+  //     case SimpleMemoComponent:
+  //     case Block: {
+  //       // Layout effects are destroyed during the mutation phase so that all
+  //       // destroy functions for all fibers are called before any create functions.
+  //       // This prevents sibling component effects from interfering with each other,
+  //       // e.g. a destroy function in one component should never override a ref set
+  //       // by a create function in another component during the same commit.
+  //       if (
+  //         enableProfilerTimer &&
+  //         enableProfilerCommitHooks &&
+  //         finishedWork.mode & ProfileMode
+  //       ) {
+  //         try {
+  //           startLayoutEffectTimer();
+  //           commitHookEffectListUnmount(
+  //             HookLayout | HookHasEffect,
+  //             finishedWork,
+  //           );
+  //         } finally {
+  //           recordLayoutEffectDuration(finishedWork);
+  //         }
+  //       } else {
+  //         commitHookEffectListUnmount(HookLayout | HookHasEffect, finishedWork);
+  //       }
+  //       return;
+  //     }
+  //     case Profiler: {
+  //       return;
+  //     }
+  //     case SuspenseComponent: {
+  //       commitSuspenseComponent(finishedWork);
+  //       attachSuspenseRetryListeners(finishedWork);
+  //       return;
+  //     }
+  //     case SuspenseListComponent: {
+  //       attachSuspenseRetryListeners(finishedWork);
+  //       return;
+  //     }
+  //     case HostRoot: {
+  //       if (supportsHydration) {
+  //         const root: FiberRoot = finishedWork.stateNode;
+  //         if (root.hydrate) {
+  //           // We've just hydrated. No need to hydrate again.
+  //           root.hydrate = false;
+  //           commitHydratedContainer(root.containerInfo);
+  //         }
+  //       }
+  //       break;
+  //     }
+  //     case OffscreenComponent:
+  //     case LegacyHiddenComponent: {
+  //       return;
+  //     }
+  //   }
 
-    commitContainer(finishedWork);
-    return;
-  }
+  //   commitContainer(finishedWork);
+  //   return;
+  // }
 
   switch (finishedWork.tag) {
     case FunctionComponent:

@@ -1230,6 +1230,7 @@ function updateEffectImpl(fiberFlags, hookFlags, create, deps): void {
     if (nextDeps !== null) {
       const prevDeps = prevEffect.deps;
       if (areHookInputsEqual(nextDeps, prevDeps)) {
+        // 应该是通过这个 tag 来标识 effect 是否被触发，可以看到下面标识了 HookHasEffect
         pushEffect(hookFlags, create, destroy, nextDeps);
         return;
       }

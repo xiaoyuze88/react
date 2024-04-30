@@ -332,6 +332,8 @@ let rootDoesHavePassiveEffects: boolean = false;
 let rootWithPendingPassiveEffects: FiberRoot | null = null;
 let pendingPassiveEffectsRenderPriority: ReactPriorityLevel = NoSchedulerPriority;
 let pendingPassiveEffectsLanes: Lanes = NoLanes;
+
+// [effect, fiber, effect, fiber, ...]
 let pendingPassiveHookEffectsMount: Array<HookEffect | Fiber> = [];
 let pendingPassiveHookEffectsUnmount: Array<HookEffect | Fiber> = [];
 let pendingPassiveProfilerEffects: Array<Fiber> = [];
@@ -1720,6 +1722,7 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
       }
       resetCurrentDebugFiberInDEV();
 
+      // 目前看到只有 Suspense 类型会返回next，这个 TODO:
       if (next !== null) {
         // Completing this fiber spawned new work. Work on that next.
         workInProgress = next;
@@ -1964,6 +1967,7 @@ function commitRootImpl(root, renderPriorityLevel) {
       'a bug in React. Please file an issue.',
   );
 
+  // 意思是到了commit这一步就不能打断了，因为已经在进行实际操作了
   // commitRoot never returns a continuation; it always finishes synchronously.
   // So we can clear these now to allow a new callback to be scheduled.
   root.callbackNode = null;
@@ -1976,6 +1980,7 @@ function commitRootImpl(root, renderPriorityLevel) {
   // Clear already finished discrete updates in case that a later call of
   // `flushDiscreteUpdates` starts a useless render pass which may cancels
   // a scheduled timeout.
+  // TODO: vinson 这什么鬼？
   if (rootsWithPendingDiscreteUpdates !== null) {
     if (
       !hasDiscreteLanes(remainingLanes) &&
@@ -2035,6 +2040,7 @@ function commitRootImpl(root, renderPriorityLevel) {
     // The first phase a "before mutation" phase. We use this phase to read the
     // state of the host tree right before we mutate it. This is where
     // getSnapshotBeforeUpdate is called.
+    // 一些事件相关的初始化，后面再看
     focusedInstanceHandle = prepareForCommit(root.containerInfo);
     shouldFireAfterActiveInstanceBlur = false;
 
@@ -2280,10 +2286,12 @@ function commitRootImpl(root, renderPriorityLevel) {
   return null;
 }
 
+// 遍历 finishedWork 的 effect list，依次处理 Snapshot 和 Passive effect，当有 Passive 时去 schedule 注册一个回调执行 flushPassiveEffects（只注册一次）
 function commitBeforeMutationEffects() {
   while (nextEffect !== null) {
     const current = nextEffect.alternate;
 
+    // 事件相关，先不看
     if (!shouldFireAfterActiveInstanceBlur && focusedInstanceHandle !== null) {
       if ((nextEffect.flags & Deletion) !== NoFlags) {
         if (doesFiberContain(nextEffect, focusedInstanceHandle)) {
@@ -2304,6 +2312,10 @@ function commitBeforeMutationEffects() {
     }
 
     const flags = nextEffect.flags;
+
+    // 处理 Snapshot flag，只有 ClassComponent 和 HostRoot 会有这个标记，其中：
+    // ClassComponent 当含有 getSnapshotBeforeUpdate 生命周期会打该标记
+    // 而HostRoot 会在 completeWork 阶段打上该标记，背景 TODO:，具体会执行 clearContainer 清空容器节点
     if ((flags & Snapshot) !== NoFlags) {
       setCurrentDebugFiberInDEV(nextEffect);
 
@@ -2314,6 +2326,7 @@ function commitBeforeMutationEffects() {
     if ((flags & Passive) !== NoFlags) {
       // If there are passive effects, schedule a callback to flush at
       // the earliest opportunity.
+      // 只触发一次
       if (!rootDoesHavePassiveEffects) {
         rootDoesHavePassiveEffects = true;
         scheduleCallback(NormalSchedulerPriority, () => {
@@ -2421,6 +2434,8 @@ function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
   }
 
   // TODO: Should probably move the bulk of this function to commitWork.
+  // nextEffect 是 root 的firstEffect，前面几次遍历都没有直接更改该变量的指向，
+  // 而这里是直接改变的 nextEffect 的指向，因为已经是最后一个步骤，后面不再需要使用它了
   while (nextEffect !== null) {
     setCurrentDebugFiberInDEV(nextEffect);
 
@@ -2458,6 +2473,8 @@ function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
   }
 }
 
+// pendingPassiveEffectsRenderPriority 仅在完成一次完整的流程，并且执行完 commitMutation + commitLayoutEffects 后，才会设置成该次渲染的 renderPriorityLevel，
+// 在该次渲染中所产生的 effect/unmount 统一在这里处理
 export function flushPassiveEffects(): boolean {
   // Returns whether passive effects were flushed.
   if (pendingPassiveEffectsRenderPriority !== NoSchedulerPriority) {
