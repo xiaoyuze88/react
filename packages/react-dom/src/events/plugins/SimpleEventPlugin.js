@@ -62,6 +62,7 @@ function extractEvents(
   if (reactName === undefined) {
     return;
   }
+  // 合成事件构造函数是由事件基类和各种类型的事件Interface合并而成，各Interface中会针对不同特殊事件属性的兼容性做一些抹平动作（normalize）
   let SyntheticEventCtor = SyntheticEvent;
   let reactEventType: string = domEventName;
   switch (domEventName) {
@@ -160,6 +161,7 @@ function extractEvents(
 
   const inCapturePhase = (eventSystemFlags & IS_CAPTURE_PHASE) !== 0;
   if (
+    // enableCreateEventHandleAPI=false
     enableCreateEventHandleAPI &&
     eventSystemFlags & IS_EVENT_HANDLE_NON_MANAGED_NODE
   ) {

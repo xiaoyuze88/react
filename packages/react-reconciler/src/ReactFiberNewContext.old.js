@@ -75,6 +75,7 @@ export function exitDisallowedContextReadInDEV(): void {
 export function pushProvider<T>(providerFiber: Fiber, nextValue: T): void {
   const context: ReactContext<T> = providerFiber.type._context;
 
+  // react-dom 走此分支
   if (isPrimaryRenderer) {
     push(valueCursor, context._currentValue, providerFiber);
 
@@ -152,6 +153,7 @@ export function calculateChangedBits<T>(
   }
 }
 
+// 手动更新整个parent链的 childLanes，包含其 alternate，如果已经包含则无需更新
 export function scheduleWorkOnParentPath(
   parent: Fiber | null,
   renderLanes: Lanes,
@@ -179,6 +181,8 @@ export function scheduleWorkOnParentPath(
   }
 }
 
+// 挺重的这个逻辑，看来 context 要慎用
+// 从当前 fiber 开始，往下深度遍历，依次查找其 dependencies 链，看是否有监听当前 context，有的话则触发更新（enqueueUpdate + mergeLanes + setParentChildLanes）
 export function propagateContextChange(
   workInProgress: Fiber,
   context: ReactContext<mixed>,
@@ -199,6 +203,8 @@ export function propagateContextChange(
       nextFiber = fiber.child;
 
       let dependency = list.firstContext;
+
+      // 如有有 dependencies，遍历 firstContext 链
       while (dependency !== null) {
         // Check if the context matches.
         if (
@@ -207,6 +213,8 @@ export function propagateContextChange(
         ) {
           // Match! Schedule an update on this fiber.
 
+          // class 组件有生命周期和内部状态，需要更显示的触发它的更新，所以需要手动 enqueueUpdate 并设置为 forceUpdate
+          // 而函数组件是每次都会执行的，当 context.value 变了，自然会触发其更新
           if (fiber.tag === ClassComponent) {
             // Schedule a force update on the work-in-progress.
             const update = createUpdate(
@@ -220,13 +228,18 @@ export function propagateContextChange(
             // worth fixing.
             enqueueUpdate(fiber, update);
           }
+
+          // mergeLanes，以确保在判断优先级的时候能够被执行
           fiber.lanes = mergeLanes(fiber.lanes, renderLanes);
           const alternate = fiber.alternate;
           if (alternate !== null) {
             alternate.lanes = mergeLanes(alternate.lanes, renderLanes);
           }
+
+          // 从下往上设置 childLanes
           scheduleWorkOnParentPath(fiber.return, renderLanes);
 
+          // 同时同步 lanes 给 dependencies
           // Mark the updated lanes on the list, too.
           list.lanes = mergeLanes(list.lanes, renderLanes);
 

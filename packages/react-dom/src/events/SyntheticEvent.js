@@ -58,6 +58,7 @@ function createSyntheticEvent(Interface: EventInterfaceType) {
         continue;
       }
       const normalize = Interface[propName];
+      // 非标准化函数都初始化为0，所以不用判断是否是函数
       if (normalize) {
         this[propName] = normalize(nativeEvent);
       } else {

@@ -539,6 +539,7 @@ export function scheduleUpdateOnFiber(
 
   // Mark that the root has a pending update.
   // 将 FiberRoot.pendingLanes 设置为当前lane
+  // 若被打断，则仍然可以从root.pendingLanes上知道有哪些lanes没执行
   markRootUpdated(root, lane, eventTime);
 
   // 在更新过程中又触发了更新，会进入该分支，晚点再看
@@ -1116,6 +1117,7 @@ export function deferredUpdates<A>(fn: () => A): A {
   }
 }
 
+// TODO: vinson 好像意思是当 discrete 事件触发前，立马把pending的 discrete flush掉
 function flushPendingDiscreteUpdates() {
   if (rootsWithPendingDiscreteUpdates !== null) {
     // For each root with pending discrete updates, schedule a callback to

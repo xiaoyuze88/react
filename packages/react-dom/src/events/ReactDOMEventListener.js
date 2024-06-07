@@ -96,6 +96,10 @@ export function createEventListenerWrapperWithPriority(
   domEventName: DOMEventName,
   eventSystemFlags: EventSystemFlags,
 ): Function {
+  // 根据事件获取优先级，有三种：
+  // 1. discrete 离散的，优先级最高，如 click，copy，keydown
+  // 2. userBlocking，如 drag、scroll
+  // 3. Continuous，最低，如 animationEnd,load
   const eventPriority = getEventPriorityForPluginSystem(domEventName);
   let listenerWrapper;
   switch (eventPriority) {
@@ -124,7 +128,9 @@ function dispatchDiscreteEvent(
   container,
   nativeEvent,
 ) {
+  // TODO: vinson 这里后面再仔细看看
   if (
+    // enableLegacyFBSupport=false
     !enableLegacyFBSupport ||
     // If we are in Legacy FB support mode, it means we've already
     // flushed for this event and we don't need to do it again.
@@ -147,6 +153,7 @@ function dispatchUserBlockingUpdate(
   container,
   nativeEvent,
 ) {
+  // decoupleUpdatePriorityFromScheduler = false
   if (decoupleUpdatePriorityFromScheduler) {
     const previousPriority = getCurrentUpdateLanePriority();
     try {
@@ -189,6 +196,7 @@ export function dispatchEvent(
     return;
   }
   let allowReplay = true;
+  // enableEagerRootListeners=true
   if (enableEagerRootListeners) {
     // TODO: replaying capture phase events is currently broken
     // because we used to do it during top-level native bubble handlers
@@ -270,6 +278,7 @@ export function dispatchEvent(
   );
 }
 
+// 实际代理到容器上事件的handler
 // Attempt dispatching an event. Returns a SuspenseInstance or Container if it's blocked.
 export function attemptToDispatchEvent(
   domEventName: DOMEventName,
@@ -280,9 +289,12 @@ export function attemptToDispatchEvent(
   // TODO: Warn if _enabled is false.
 
   const nativeEventTarget = getEventTarget(nativeEvent);
+  // 1. 根据native事件找到target dom
   let targetInst = getClosestInstanceFromNode(nativeEventTarget);
 
   if (targetInst !== null) {
+    // 找到最近一个mounted的父fiber
+    // TODO: vinson dig deeper when free
     const nearestMounted = getNearestMountedFiber(targetInst);
     if (nearestMounted === null) {
       // This tree has been unmounted already. Dispatch without a target.

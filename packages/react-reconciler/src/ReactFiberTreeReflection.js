@@ -36,6 +36,7 @@ export function getNearestMountedFiber(fiber: Fiber): null | Fiber {
   if (!fiber.alternate) {
     // If there is no alternate, this might be a new tree that isn't inserted
     // yet. If it is, then it will have a pending insertion effect on it.
+    // 如果没有alternate，说明还没有实际渲染，此时还需要判断是否打有插入的flag，如果有的话则认为它的父节点是最近一个mounted，并继续往上找。这里认为没有打插入 flag 的节点是已经 mounted的
     let nextNode = node;
     do {
       node = nextNode;
@@ -52,6 +53,7 @@ export function getNearestMountedFiber(fiber: Fiber): null | Fiber {
       node = node.return;
     }
   }
+  // 一直往上找到root，如果能够找到，说明它在fiber树中，否则可能已经被移除
   if (node.tag === HostRoot) {
     // TODO: Check if this was a nested HostRoot when used with
     // renderContainerIntoSubtree.

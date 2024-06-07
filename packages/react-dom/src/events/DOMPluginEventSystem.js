@@ -230,6 +230,7 @@ function executeDispatch(
   event.currentTarget = null;
 }
 
+// listeners 是从当前节点往上遍历直到root的，根据是捕获还是冒泡按照逆序还是顺序依次执行即可
 function processDispatchQueueItemsInOrder(
   event: ReactSyntheticEvent,
   dispatchListeners: Array<DispatchListener>,
@@ -297,7 +298,9 @@ export function listenToNonDelegatedEvent(
   targetElement: Element,
 ): void {
   const isCapturePhaseListener = false;
+  // 挂了个Set在dom上
   const listenerSet = getEventListenerSet(targetElement);
+  // 每个事件根据capture/bubble有不同的key
   const listenerSetKey = getListenerSetKey(
     domEventName,
     isCapturePhaseListener,
@@ -587,6 +590,7 @@ function isMatchingRootContainer(
   );
 }
 
+// 真正分发事件的主逻辑
 export function dispatchEventForPluginEventSystem(
   domEventName: DOMEventName,
   eventSystemFlags: EventSystemFlags,
@@ -596,7 +600,9 @@ export function dispatchEventForPluginEventSystem(
 ): void {
   let ancestorInst = targetInst;
   if (
+    // 非绑定在非 react 管理的节点上的事件，也就是是react管理的节点
     (eventSystemFlags & IS_EVENT_HANDLE_NON_MANAGED_NODE) === 0 &&
+    // 且非非代理事件，即是可代理事件
     (eventSystemFlags & IS_NON_DELEGATED) === 0
   ) {
     const targetContainerNode = ((targetContainer: any): Node);
@@ -731,27 +737,28 @@ export function accumulateSinglePhaseListeners(
       lastHostComponent = stateNode;
 
       // createEventHandle listeners
-      if (enableCreateEventHandleAPI) {
-        const eventHandlerListeners = getEventHandlerListeners(
-          lastHostComponent,
-        );
-        if (eventHandlerListeners !== null) {
-          eventHandlerListeners.forEach(entry => {
-            if (
-              entry.type === nativeEventType &&
-              entry.capture === inCapturePhase
-            ) {
-              listeners.push(
-                createDispatchListener(
-                  instance,
-                  entry.callback,
-                  (lastHostComponent: any),
-                ),
-              );
-            }
-          });
-        }
-      }
+      // enableCreateEventHandleAPI=false
+      // if (enableCreateEventHandleAPI) {
+      //   const eventHandlerListeners = getEventHandlerListeners(
+      //     lastHostComponent,
+      //   );
+      //   if (eventHandlerListeners !== null) {
+      //     eventHandlerListeners.forEach(entry => {
+      //       if (
+      //         entry.type === nativeEventType &&
+      //         entry.capture === inCapturePhase
+      //       ) {
+      //         listeners.push(
+      //           createDispatchListener(
+      //             instance,
+      //             entry.callback,
+      //             (lastHostComponent: any),
+      //           ),
+      //         );
+      //       }
+      //     });
+      //   }
+      // }
 
       // Standard React on* listeners, i.e. onClick or onClickCapture
       if (reactEventName !== null) {
@@ -762,35 +769,38 @@ export function accumulateSinglePhaseListeners(
           );
         }
       }
-    } else if (
-      enableCreateEventHandleAPI &&
-      enableScopeAPI &&
-      tag === ScopeComponent &&
-      lastHostComponent !== null &&
-      stateNode !== null
-    ) {
-      // Scopes
-      const reactScopeInstance = stateNode;
-      const eventHandlerListeners = getEventHandlerListeners(
-        reactScopeInstance,
-      );
-      if (eventHandlerListeners !== null) {
-        eventHandlerListeners.forEach(entry => {
-          if (
-            entry.type === nativeEventType &&
-            entry.capture === inCapturePhase
-          ) {
-            listeners.push(
-              createDispatchListener(
-                instance,
-                entry.callback,
-                (lastHostComponent: any),
-              ),
-            );
-          }
-        });
-      }
     }
+    
+    // enableCreateEventHandleAPI=false
+    // else if (
+    //   enableCreateEventHandleAPI &&
+    //   enableScopeAPI &&
+    //   tag === ScopeComponent &&
+    //   lastHostComponent !== null &&
+    //   stateNode !== null
+    // ) {
+    //   // Scopes
+    //   const reactScopeInstance = stateNode;
+    //   const eventHandlerListeners = getEventHandlerListeners(
+    //     reactScopeInstance,
+    //   );
+    //   if (eventHandlerListeners !== null) {
+    //     eventHandlerListeners.forEach(entry => {
+    //       if (
+    //         entry.type === nativeEventType &&
+    //         entry.capture === inCapturePhase
+    //       ) {
+    //         listeners.push(
+    //           createDispatchListener(
+    //             instance,
+    //             entry.callback,
+    //             (lastHostComponent: any),
+    //           ),
+    //         );
+    //       }
+    //     });
+    //   }
+    // }
     // If we are only accumulating events for the target, then we don't
     // continue to propagate through the React fiber tree to find other
     // listeners.

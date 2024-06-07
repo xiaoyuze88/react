@@ -45,6 +45,7 @@ function finishEventHandler() {
   }
 }
 
+// TODO: vinson batch的实现原理？
 export function batchedUpdates(fn, bookkeeping) {
   if (isInsideEventHandler) {
     // If we are currently inside another batch, we need to wait until it
@@ -90,6 +91,7 @@ export function discreteUpdates(fn, a, b, c, d) {
 
 let lastFlushedEventTimeStamp = 0;
 export function flushDiscreteUpdatesIfNeeded(timeStamp: number) {
+  // enableDiscreteEventFlushingChange=false
   if (enableDiscreteEventFlushingChange) {
     // event.timeStamp isn't overly reliable due to inconsistencies in
     // how different browsers have historically provided the time stamp.

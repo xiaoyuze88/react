@@ -274,6 +274,7 @@ export function updateContainer(
   }
 
   // 通过 parentComponent 获取context，挂在 container（FiberRoot）上
+  // 好像是一种遗留用法，没看到哪里有传 parentComponent 的
   const context = getContextForSubtree(parentComponent);
   if (container.context === null) {
     container.context = context;
