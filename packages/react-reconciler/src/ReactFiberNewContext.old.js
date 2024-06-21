@@ -390,5 +390,6 @@ export function readContext<T>(
       lastContextDependency = lastContextDependency.next = contextItem;
     }
   }
+  // isPrimaryRenderer=true
   return isPrimaryRenderer ? context._currentValue : context._currentValue2;
 }

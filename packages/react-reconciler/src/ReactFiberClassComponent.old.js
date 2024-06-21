@@ -652,6 +652,8 @@ function constructClassInstance(
   }
 
   const instance = new ctor(props, context);
+
+  // 先执行 wip.memorizedState = instance.state，然后又 wip.memorizedState= instance.state?
   const state = (workInProgress.memoizedState =
     instance.state !== null && instance.state !== undefined
       ? instance.state
@@ -817,6 +819,7 @@ function mountClassInstance(
   }
 
   const instance = workInProgress.stateNode;
+  // TODO: vinson new 的时候已经设置了 props 了，这里为啥还要挂一次？
   instance.props = newProps;
   instance.state = workInProgress.memoizedState;
   instance.refs = emptyRefsObject;
@@ -896,6 +899,7 @@ function mountClassInstance(
   }
 }
 
+// 有实例，但是无 current
 function resumeMountClassInstance(
   workInProgress: Fiber,
   ctor: any,

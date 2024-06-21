@@ -246,6 +246,7 @@ const {
 
 type ExecutionContext = number;
 
+// TODO: 每个context什么时机触发，有什么作用？
 export const NoContext = /*             */ 0b0000000;
 const BatchedContext = /*               */ 0b0000001;
 const EventContext = /*                 */ 0b0000010;
@@ -271,6 +272,7 @@ let workInProgressRoot: FiberRoot | null = null;
 // The fiber we're working on
 let workInProgress: Fiber | null = null;
 // The lanes we're rendering
+// 仅在触发一个新更新时，在 prepareFreshStack 中会被赋值
 let workInProgressRootRenderLanes: Lanes = NoLanes;
 
 // Stack that allows components to change the render lanes for its subtree
@@ -281,6 +283,8 @@ let workInProgressRootRenderLanes: Lanes = NoLanes;
 //
 // Most things in the work loop should deal with workInProgressRootRenderLanes.
 // Most things in begin/complete phases should deal with subtreeRenderLanes.
+// 在 prepareFreshStack 中初始化，初始值等于当前渲染的 lanes
+// TODO: subtreeRenderLanes 和 workInProgressRootRenderLanes 区别？
 let subtreeRenderLanes: Lanes = NoLanes;
 const subtreeRenderLanesCursor: StackCursor<Lanes> = createCursor(NoLanes);
 
@@ -373,6 +377,8 @@ export function getWorkInProgressRoot(): FiberRoot | null {
   return workInProgressRoot;
 }
 
+// 每次触发更新时都会计算一个当前事件的时间
+// 会根据运行时不同而选择不同的选取策略
 export function requestEventTime() {
   if ((executionContext & (RenderContext | CommitContext)) !== NoContext) {
     // We're inside React, so it's fine to read the actual time.
@@ -399,9 +405,14 @@ export function getCurrentTime() {
 export function requestUpdateLane(fiber: Fiber): Lane {
   // Special cases
   const mode = fiber.mode;
+
+  // 非 blocking，肯定是 legacy
   if ((mode & BlockingMode) === NoMode) {
     return (SyncLane: Lane);
-  } else if ((mode & ConcurrentMode) === NoMode) {
+  // eslint-disable-next-line brace-style
+  }
+  // 是 blocking,非 concurrent，肯定是 blocking mode
+  else if ((mode & ConcurrentMode) === NoMode) {
     return getCurrentPriorityLevel() === ImmediateSchedulerPriority
       ? (SyncLane: Lane)
       : (SyncBatchedLane: Lane);
@@ -550,6 +561,7 @@ export function scheduleUpdateOnFiber(
     // phase update. In that case, we don't treat render phase updates as if
     // they were interleaved, for backwards compat reasons.
     if (
+      // deferRenderPhaseUpdateToNextBatch=true
       deferRenderPhaseUpdateToNextBatch ||
       (executionContext & RenderContext) === NoContext
     ) {
@@ -573,6 +585,7 @@ export function scheduleUpdateOnFiber(
   // priority as an argument to that function and this one.
   const priorityLevel = getCurrentPriorityLevel();
 
+  // sync的话优不优先级的并不关注
   if (lane === SyncLane) {
     if (
       // Check if we're inside unbatchedUpdates
@@ -683,6 +696,7 @@ function markUpdateLaneFromFiberToRoot(
 // of the existing task is the same as the priority of the next level that the
 // root has work on. This function is called on every update, and right before
 // exiting a task.
+// TODO: vinson 后面再读，更新阶段需要处理
 function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
   const existingCallbackNode = root.callbackNode;
 
@@ -693,11 +707,13 @@ function ensureRootIsScheduled(root: FiberRoot, currentTime: number) {
   // Determine the next lanes to work on, and their priority.
   const nextLanes = getNextLanes(
     root,
+    // workInProgressRoot 只有在正式开始渲染才会被赋值（prepareFreshStack），如果有值，说明当前正在渲染，是一个渲染中触发的更新，此时需要传入
     root === workInProgressRoot ? workInProgressRootRenderLanes : NoLanes,
   );
 
   // TODO: 这个优先级怎么获取的还需要深入研究
   // This returns the priority level computed during the `getNextLanes` call.
+  // 拿到在前面 getNextLanes 中计算得到的当前 LanePriority
   const newCallbackPriority = returnNextLanesPriority();
 
   if (nextLanes === NoLanes) {
@@ -990,11 +1006,14 @@ function performSyncWorkOnRoot(root) {
   let lanes;
   let exitStatus;
   if (
+    // 当前有正在渲染的root，且和触发update的root为同一个，说明是渲染中触发的更新
     root === workInProgressRoot &&
+    // 且上一个workInProgressRootRenderLanes中含有已过期的lanes
     includesSomeLane(root.expiredLanes, workInProgressRootRenderLanes)
   ) {
     // There's a partial tree, and at least one of its lanes has expired. Finish
     // rendering it before rendering the rest of the expired work.
+    // 那么先把上一个渲染执行完
     lanes = workInProgressRootRenderLanes;
     exitStatus = renderRootSync(root, lanes);
     if (
@@ -1318,10 +1337,17 @@ export function popRenderLanes(fiber: Fiber) {
 }
 
 // 准备一个干净的栈
+// 1. 重置 FiberRoot 上一些渲染运行时需要的全局变量
+// 2. 如果当前已经有一个 workInProgress，需要打断并重置
+// 3. 创建/克隆一个新的 workInProgress
+// 4. 重置一些 workInProgress 相关的全局变量
 function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
+  // 完成 beginWork + completeWork 之后的完整 fiber 树
   root.finishedWork = null;
+  // 执行完 beginWork + completeWork 的 fiber 树对应的执行 lanes
   root.finishedLanes = NoLanes;
 
+  // TODO: vinson concurrent mode 特有
   const timeoutHandle = root.timeoutHandle;
   if (timeoutHandle !== noTimeout) {
     // The root previous suspended and scheduled a timeout to commit a fallback
@@ -1335,7 +1361,10 @@ function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
   if (workInProgress !== null) {
     let interruptedWork = workInProgress.return;
     while (interruptedWork !== null) {
+      // TODO: vinson 细看
+      // 回退一些 context 相关的堆栈指针
       unwindInterruptedWork(interruptedWork);
+      // TODO: vinson 这里仅需要从 workInProgress 往上遍历到头就行了吗？没有 sibling 吗?
       interruptedWork = interruptedWork.return;
     }
   }
@@ -1419,6 +1448,7 @@ function handleError(root, thrownValue): void {
   } while (true);
 }
 
+// TODO: vinson 为什么这里要禁用hooks？那什么时候切换 dispatcher 为合法？
 function pushDispatcher() {
   const prevDispatcher = ReactCurrentDispatcher.current;
   // 切换当前 Dispatcher 为 ContextOnlyDispatcher（看着是不允许使用hooks的dispatcher）
@@ -1515,16 +1545,20 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
   executionContext |= RenderContext;
 
   // 更新 Dispatcher，返回上一个
+  // TODO: vinson 为什么要用堆栈形式维护 dispatch？好像跟嵌套组件/嵌套 hooks，还有渲染中更新有关，晚点再看
   const prevDispatcher = pushDispatcher();
 
   // If the root or lanes have changed, throw out the existing stack
   // and prepare a fresh one. Otherwise we'll continue where we left off.
+  // TODO: vinson 除了初次渲染，还有可能会进入该分支吗？
+  // by gpt: 1. 初次渲染；2. 强制更新？ 3. 错误边界；
+  // 若进入分支，则会抛弃当前已经进行的渲染堆栈（workInProgress fiber tree），然后重新开始新的渲染
   if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
     prepareFreshStack(root, lanes);
     startWorkOnPendingInteractions(root, lanes);
   }
 
-  // 不知道干嘛的，好像跟 ref 有关，先不管
+  // trace相关
   const prevInteractions = pushInteractions(root);
 
   if (__DEV__) {
@@ -1539,6 +1573,7 @@ function renderRootSync(root: FiberRoot, lanes: Lanes) {
 
   do {
     try {
+      // TODO: vinson Sync下能否中断？
       workLoopSync();
       break;
     } catch (thrownValue) {

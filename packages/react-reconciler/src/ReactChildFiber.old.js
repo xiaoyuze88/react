@@ -344,6 +344,7 @@ function ChildReconciler(shouldTrackSideEffects) {
     return clone;
   }
 
+  
   function placeChild(
     newFiber: Fiber,
     lastPlacedIndex: number,
@@ -355,8 +356,11 @@ function ChildReconciler(shouldTrackSideEffects) {
       return lastPlacedIndex;
     }
     const current = newFiber.alternate;
+
+    // newFiber是wip，alternate有值说明是复用的，current是当前 current fiber tree 上的
     if (current !== null) {
       const oldIndex = current.index;
+      // 只有前移后需要移动，否则其他场景都直接往前拼接即可
       if (oldIndex < lastPlacedIndex) {
         // This is a move.
         newFiber.flags = Placement;
@@ -381,6 +385,8 @@ function ChildReconciler(shouldTrackSideEffects) {
     return newFiber;
   }
 
+  // 如果旧的不是 HostText，则直接创建一个新的 TextFiber
+  // 如果是的话，复用
   function updateTextNode(
     returnFiber: Fiber,
     current: Fiber | null,
@@ -400,6 +406,8 @@ function ChildReconciler(shouldTrackSideEffects) {
     }
   }
 
+  // 如果有旧的，且type一致，则认为可以复用
+  // 否则创建新的
   function updateElement(
     returnFiber: Fiber,
     current: Fiber | null,
@@ -584,6 +592,7 @@ function ChildReconciler(shouldTrackSideEffects) {
 
     const key = oldFiber !== null ? oldFiber.key : null;
 
+    // 也就是只要新 element 是 textNode，那么只要旧 fiber 无 key 就可以认为可复用（实际是根据 oldFiber 是否 textNode 而决定重新创建还是复用）
     if (typeof newChild === 'string' || typeof newChild === 'number') {
       // Text nodes don't have keys. If the previous node is implicitly keyed
       // we can continue to replace it without aborting even if it is not a text
@@ -633,6 +642,7 @@ function ChildReconciler(shouldTrackSideEffects) {
           return null;
         }
 
+        // 新 children 是数组，包一个 Fragment
         return updateFragment(returnFiber, oldFiber, newChild, lanes, null);
       }
 
@@ -807,21 +817,33 @@ function ChildReconciler(shouldTrackSideEffects) {
       }
     }
 
+    // 新 fiber 链表的头
     let resultingFirstChild: Fiber | null = null;
     let previousNewFiber: Fiber | null = null;
 
     let oldFiber = currentFirstChild;
+    // 这里的算法是尽量保证前面的一致，一致的都尽量往前推，如：
+    // ABCDE => ABEDC
+    // 会先将 E 往前推到 B 之后，剩余 CD 则往后 Placement
+    // 所以 lastPlacedIndex 记录的是最后一个能够保持原顺序的元素的index
     let lastPlacedIndex = 0;
     let newIdx = 0;
     let nextOldFiber = null;
+
+    // 第一个循环，寻找最长公共前序列
     for (; oldFiber !== null && newIdx < newChildren.length; newIdx++) {
+      // TODO: vinson 我理解这里并不会出现这个case，可能只是做一个兜底？
+      // 因为都是从下标0开始遍历的，而 oldFiber 链是上一次渲染的结果，他肯定是按照从 0 开始递增来排的，而 newIdx 是每次循环都递增的，想要进入分支，只可能说 oldFiber 往下跳了两次，或者说 oldFiber 链的顺序本身就是错的，但是这理论上并不会发生？
       if (oldFiber.index > newIdx) {
         nextOldFiber = oldFiber;
         oldFiber = null;
       } else {
         nextOldFiber = oldFiber.sibling;
       }
-      // 根据 oldFiber 和 newElement 比较，拿到新的 fiber，如果为null表示key不一致
+
+      // 根据 oldFiber 和 newElement 比较key，如果不一致返回null，如果一致则看type是否一致
+      // type也一致可以复用 fiber，否则重新创建 fiber
+      // 注意：useFiber 时返回的是根据 current 克隆出来的 workInProgress
       const newFiber = updateSlot(
         returnFiber,
         oldFiber,
@@ -840,6 +862,7 @@ function ChildReconciler(shouldTrackSideEffects) {
         break;
       }
       if (shouldTrackSideEffects) {
+        // oldFiber 无法复用，标记 Deletion
         if (oldFiber && newFiber.alternate === null) {
           // We matched the slot, but we didn't reuse the existing fiber, so we
           // need to delete the existing child.
@@ -855,18 +878,21 @@ function ChildReconciler(shouldTrackSideEffects) {
         // I.e. if we had null values before, then we want to defer this
         // for each null value. However, we also don't want to call updateSlot
         // with the previous one.
+        // 连接链表
         previousNewFiber.sibling = newFiber;
       }
       previousNewFiber = newFiber;
       oldFiber = nextOldFiber;
     }
 
+    // 整个 newChildren 都为公共前序列，完全一致，直接返回
     if (newIdx === newChildren.length) {
       // We've reached the end of the new children. We can delete the rest.
       deleteRemainingChildren(returnFiber, oldFiber);
       return resultingFirstChild;
     }
 
+    // 老链表已遍历完，剩下的都是新的
     if (oldFiber === null) {
       // If we don't have any more existing children we can choose a fast path
       // since the rest will all be insertions.
@@ -875,6 +901,7 @@ function ChildReconciler(shouldTrackSideEffects) {
         if (newFiber === null) {
           continue;
         }
+        // 因为还是依次执行的，只需要标记Placement，不涉及交换顺序
         lastPlacedIndex = placeChild(newFiber, lastPlacedIndex, newIdx);
         if (previousNewFiber === null) {
           // TODO: Move out of the loop. This only happens for the first run.
@@ -887,11 +914,15 @@ function ChildReconciler(shouldTrackSideEffects) {
       return resultingFirstChild;
     }
 
+    // 下面的case最复杂，说明除了最长公共前序列以外，旧链表还有值，且与 newChildren 不一致，需要一一判断位置
+
     // Add all children to a key map for quick lookups.
+    // 以 key/index 为索引为 oldFibers 构建映射（这就是为什么不设置key容易有bug，如果移动了位置，index一致，即key一致，且type也一致的话，会认为该fiber可以复用，但是实际上是另外一个同类型的fiber的话，就混淆了）
     const existingChildren = mapRemainingChildren(returnFiber, oldFiber);
 
     // Keep scanning and use the map to restore deleted items as moves.
     for (; newIdx < newChildren.length; newIdx++) {
+      // 后面就直接以 newChildren 的顺序为准了，尝试从 old fiber map中映射出旧fiber，并尝试复用，无法复用则创建新的
       const newFiber = updateFromMap(
         existingChildren,
         returnFiber,
@@ -906,6 +937,7 @@ function ChildReconciler(shouldTrackSideEffects) {
             // current, that means that we reused the fiber. We need to delete
             // it from the child list so that we don't add it to the deletion
             // list.
+            // 这里表示该fiber被复用了，因为最后剩下的 existingChildren 需要依次标记删除，这里这里需要从 existingChildren 中移除
             existingChildren.delete(
               newFiber.key === null ? newIdx : newFiber.key,
             );
@@ -1155,6 +1187,7 @@ function ChildReconciler(shouldTrackSideEffects) {
           case Fragment: {
             if (element.type === REACT_FRAGMENT_TYPE) {
               deleteRemainingChildren(returnFiber, child.sibling);
+              // TODO: vinson 直接把 children 挂在 pendingProps 上？不是应该是 props.children 吗
               const existing = useFiber(child, element.props.children);
               existing.return = returnFiber;
               if (__DEV__) {
@@ -1299,6 +1332,8 @@ function ChildReconciler(shouldTrackSideEffects) {
       newChild !== null &&
       newChild.type === REACT_FRAGMENT_TYPE &&
       newChild.key === null;
+
+    // 如果是一个fragment且没设置key，直接忽略它直接去处理它的children
     if (isUnkeyedTopLevelFragment) {
       newChild = newChild.props.children;
     }

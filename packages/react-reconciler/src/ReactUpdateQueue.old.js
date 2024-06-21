@@ -396,6 +396,14 @@ function getStateFromUpdate<State>(
   return prevState;
 }
 
+// 很复杂的一个函数，但是其实也很清晰
+// 1. 从 shared.pending 上拆解出待更新的链表，挂在当前 baseUpdate 链上
+// 2. 遍历 baseUpdate 链，克隆出一个新的链表
+// 2.1 依次判断是否有足够优先级执行，没有的话，原样克隆，同时记录不够权限的 lanes
+// 2.2 足够权限的话，除了 lane 标记为 NoLane，其他原样克隆，最后根据该次 update 和最新的 state 计算下一个 state，同时如果有 callback 的话标记 fiber.flags|=Callback，且将 update 挂在 queue.effects 上 
+// 2.3 每次单循环，重新判断 shared.pending，以防中间有二次触发更新，有的话重复上面步骤挂在 baseUpdate 链上
+// 2.4 完成遍历后，得到一个新的 baseUpdate 链，其中有足够优先级的 lane 被标记为了 NoLane，不够的 lanes 被记录在了 newLanes，同时根据所有有权限的update计算出了最新的 state
+// 3. 更新最新的 state 和 baseUpdate 到 updateQueue 上，记录被跳过的 lanes，同时更新剩余的 lanes 到 fiber上，同时记录最新的 state 到 memorizedState
 export function processUpdateQueue<State>(
   workInProgress: Fiber,
   props: any,
@@ -421,6 +429,8 @@ export function processUpdateQueue<State>(
 
     // The pending queue is circular. Disconnect the pointer between first
     // and last so that it's non-circular.
+    // pending是一个环形链表，执向队尾，解开收尾，拿到收尾两个指针
+    // 然后将其挂在原 baseUpdate 单向链表后，如果原没有 baseUpdate，直接执向pending的指针
     const lastPendingUpdate = pendingQueue;
     const firstPendingUpdate = lastPendingUpdate.next;
     lastPendingUpdate.next = null;
@@ -441,6 +451,7 @@ export function processUpdateQueue<State>(
     // lists and take advantage of structural sharing.
     // TODO: Pass `current` as argument
     const current = workInProgress.alternate;
+
     if (current !== null) {
       // This is always non-null on a ClassComponent or HostRoot
       const currentQueue: UpdateQueue<State> = (current.updateQueue: any);
@@ -449,6 +460,7 @@ export function processUpdateQueue<State>(
       // 如果 current 上的 lastBaseUpdate 跟 alternative 上的 lastBaseUpdate 不一致
       // TODO: vinson 为什么要同步给 current？
       // 跟 concurrent mode 有关，主要来源于当前渲染与之前的渲染产生了分歧，为了保持最后的更新结果的一致性，需要同步这个更新队列
+      // TODO: vinson 还是要搞清楚这个 update 链是干嘛的，pending链是干嘛的，最终怎么生效到 state 上的
       if (currentLastBaseUpdate !== lastBaseUpdate) {
         if (currentLastBaseUpdate === null) {
           currentQueue.firstBaseUpdate = firstPendingUpdate;
@@ -466,6 +478,7 @@ export function processUpdateQueue<State>(
     let newState = queue.baseState;
     // TODO: Don't need to accumulate this. Instead, we can remove renderLanes
     // from the original lanes.
+    // 虽然叫 newLanes，实际上是本次更新后不够权限渲染的 lanes
     let newLanes = NoLanes;
 
     let newBaseState = null;
@@ -492,6 +505,8 @@ export function processUpdateQueue<State>(
 
           next: null,
         };
+
+        // TODO: 好像是记录不够权限的update？
         if (newLastBaseUpdate === null) {
           newFirstBaseUpdate = newLastBaseUpdate = clone;
           newBaseState = newState;
@@ -530,6 +545,7 @@ export function processUpdateQueue<State>(
           instance,
         );
         const callback = update.callback;
+        // 如果有 callback，wip上挂上 Callback flag，同时 queue.effects 推入该 update
         if (callback !== null) {
           workInProgress.flags |= Callback;
           const effects = queue.effects;

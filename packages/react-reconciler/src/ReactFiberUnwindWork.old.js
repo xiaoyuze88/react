@@ -53,6 +53,7 @@ function unwindWork(workInProgress: Fiber, renderLanes: Lanes) {
       }
       const flags = workInProgress.flags;
       if (flags & ShouldCapture) {
+        // 移除 ShouldCapture 并标记 DidCapture
         workInProgress.flags = (flags & ~ShouldCapture) | DidCapture;
         if (
           enableProfilerTimer &&

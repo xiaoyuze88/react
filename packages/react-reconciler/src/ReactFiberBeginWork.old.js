@@ -235,6 +235,7 @@ if (__DEV__) {
 export function reconcileChildren(
   current: Fiber | null,
   workInProgress: Fiber,
+  // 处理完父节点的render方法后返回的children的 ReactElement
   nextChildren: any,
   renderLanes: Lanes,
 ) {
@@ -875,6 +876,8 @@ function updateClassComponent(
     }
   }
 
+  // 
+
   // Push context providers early to prevent context stack mismatches.
   // During mounting we don't know the child context yet as the instance doesn't exist.
   // We will invalidate the child context in finishClassComponent() right after rendering.
@@ -904,7 +907,9 @@ function updateClassComponent(
     constructClassInstance(workInProgress, Component, nextProps);
     mountClassInstance(workInProgress, Component, nextProps, renderLanes);
     shouldUpdate = true;
-  } else if (current === null) {
+  }
+  // TODO: vinson 什么场景下会出现这个分支？如果是 umount 掉了，那为什么 wip fiber还在？看到后面 commitWork 之后再回来看这里
+  else if (current === null) {
     // In a resume, we'll already have an instance we can reuse.
     shouldUpdate = resumeMountClassInstance(
       workInProgress,
@@ -1370,6 +1375,7 @@ function mountIndeterminateComponent(
 
   const props = workInProgress.pendingProps;
   let context;
+  // legacy
   if (!disableLegacyContext) {
     const unmaskedContext = getUnmaskedContext(
       workInProgress,
@@ -1457,6 +1463,7 @@ function mountIndeterminateComponent(
   if (
     // Run these checks in production only if the flag is off.
     // Eventually we'll delete this branch altogether.
+    // disableModulePatternComponents=true
     !disableModulePatternComponents &&
     typeof value === 'object' &&
     value !== null &&
@@ -3330,6 +3337,7 @@ function beginWork(
         renderLanes,
       );
     }
+    // TODO: 晚点专门看
     case LazyComponent: {
       const elementType = workInProgress.elementType;
       return mountLazyComponent(
@@ -3443,6 +3451,7 @@ function beginWork(
         renderLanes,
       );
     }
+    // maybe legacy? by gpt，这是遇到一个类组件时会初始化的组件
     case IncompleteClassComponent: {
       const Component = workInProgress.type;
       const unresolvedProps = workInProgress.pendingProps;
@@ -3467,12 +3476,14 @@ function beginWork(
       }
       break;
     }
+    // enableScopeAPI=false
     case ScopeComponent: {
       if (enableScopeAPI) {
         return updateScopeComponent(current, workInProgress, renderLanes);
       }
       break;
     }
+    // enableBlocksAPI=false
     case Block: {
       if (enableBlocksAPI) {
         const block = workInProgress.type;
@@ -3481,6 +3492,7 @@ function beginWork(
       }
       break;
     }
+    // TODO: vinson concurrent mode
     case OffscreenComponent: {
       return updateOffscreenComponent(current, workInProgress, renderLanes);
     }

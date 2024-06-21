@@ -19,6 +19,7 @@ import {createCursor, push, pop} from './ReactFiberStack.old';
 declare class NoContextT {}
 const NO_CONTEXT: NoContextT = ({}: any);
 
+// TODO: vinson 看这三个context的作用
 const contextStackCursor: StackCursor<HostContext | NoContextT> = createCursor(
   NO_CONTEXT,
 );
