@@ -179,6 +179,7 @@ function flushSyncCallbackQueueImpl() {
     // Prevent re-entrancy.
     isFlushingSyncQueue = true;
     let i = 0;
+    // decoupleUpdatePriorityFromScheduler=false
     if (decoupleUpdatePriorityFromScheduler) {
       const previousLanePriority = getCurrentUpdateLanePriority();
       try {

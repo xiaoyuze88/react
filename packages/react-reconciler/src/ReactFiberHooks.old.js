@@ -399,12 +399,15 @@ export function renderWithHooks<Props, SecondArg>(
       ReactCurrentDispatcher.current = HooksDispatcherOnMountInDEV;
     }
   } else {
+    // 根据有无 current 或有无 current.memorizedState 来判断是 mount 还是 update
+    // TODO: 那 mount 阶段的 updatePhaseRender 也是 mount?
     ReactCurrentDispatcher.current =
       current === null || current.memoizedState === null
         ? HooksDispatcherOnMount
         : HooksDispatcherOnUpdate;
   }
 
+  // 第一次渲染
   let children = Component(props, secondArg);
 
   // Check if there was a render phase update
@@ -438,6 +441,7 @@ export function renderWithHooks<Props, SecondArg>(
         hookTypesUpdateIndexDev = -1;
       }
 
+      // render phase render 走的另外一个 dispatcher => rerender
       ReactCurrentDispatcher.current = __DEV__
         ? HooksDispatcherOnRerenderInDEV
         : HooksDispatcherOnRerender;
@@ -557,6 +561,8 @@ function mountWorkInProgressHook(): Hook {
 }
 
 
+// 找到下一个指向的 hook，同时正确的赋值 currentHook 和 workInProgressHook，分别指向上一次渲染的hook和当前正在处理的 hook
+// 返回下一个指向的 hook
 function updateWorkInProgressHook(): Hook {
   // This function is used both for updates and for re-renders triggered by a
   // render phase update. It assumes there is either a current hook we can
@@ -573,9 +579,11 @@ function updateWorkInProgressHook(): Hook {
   // 如果 currentHook 有值，则指针后移
   if (currentHook === null) {
     const current = currentlyRenderingFiber.alternate;
+    // 已经渲染完成过
     if (current !== null) {
       nextCurrentHook = current.memoizedState;
     } else {
+      // 还没成功渲染过
       nextCurrentHook = null;
     }
   } else {
@@ -585,12 +593,19 @@ function updateWorkInProgressHook(): Hook {
   // currentFiber.memoizedState
   let nextWorkInProgressHook: null | Hook;
 
+  // 这里只有两种可能：
+  // 1. 从 rerender 过来的，此时 wip.memorizedState 必定有值（因为已经渲染过一次了）
+  // 2. 非第一次渲染，current 肯定有值
+  // wip hook，为空的话，尝试从 wip.memorizedState 取(mount阶段挂载的)
   if (workInProgressHook === null) {
     nextWorkInProgressHook = currentlyRenderingFiber.memoizedState;
   } else {
+    // 已经初始化过的话，直接取next
     nextWorkInProgressHook = workInProgressHook.next;
   }
 
+  
+  // 不为空的话，是不是说明本次渲染当前 hook 已经执行过了？
   if (nextWorkInProgressHook !== null) {
     // There's already a work-in-progress. Reuse it.
     workInProgressHook = nextWorkInProgressHook;
@@ -598,6 +613,8 @@ function updateWorkInProgressHook(): Hook {
 
     currentHook = nextCurrentHook;
   } else {
+    // 为空的话，说明本次渲染中该hook是第一次执行，尝试从 current 中复制一个出来
+    // TODO: 如果是rerender呢？还没有 current？
     // Clone from the current hook.
 
     invariant(
@@ -686,6 +703,8 @@ function updateReducer<S, I, A>(
 
   // The last pending update that hasn't been processed yet.
   const pendingQueue = queue.pending;
+
+  // 如果 queue.pending 不为空，则添加到 baseQueue 上，然后清空 pending
   if (pendingQueue !== null) {
     // We have new updates that haven't been processed yet.
     // We'll add them to the base queue.
@@ -721,6 +740,13 @@ function updateReducer<S, I, A>(
     let update = first;
     do {
       const updateLane = update.lane;
+
+      // 不够权限执行
+      // 1. 克隆一个 Update 对象
+      // 2. 剩余未执行的继续挂在 newBaseQueue 上
+      // 3. 如果是第一个被跳过的，那么将 newBaseState 设置为上一个 baseState(以保证下一次执行时的顺序和各基础状态保持一致)
+      // 4. 将未执行的 updateLane 挂到 wip.lanes 上
+      // 5. 记录 wipRootSkippedLanes
       if (!isSubsetOfLanes(renderLanes, updateLane)) {
         // Priority is insufficient. Skip this update. If this is the first
         // skipped update, the previous update/state is the new base
@@ -747,6 +773,10 @@ function updateReducer<S, I, A>(
         );
         markSkippedUpdateLanes(updateLane);
       } else {
+        // 够权限执行
+        // 1. 如果当前有被跳过的更新，那么就算足够权限执行也要挂在下一个baseQueue 后，以保证下次执行时 baseQueue 的基础状态和顺序仍保持一致
+        // 2. 如果有 eagerReducer 且与当前 reducer 一致，那么我们可以直接服用 eagerState(当 dispatch 时当前 Fiber.lanes===NoLane，即触发时没其他任务时，会去计算这个 eagerState，如果一致就会 bailout。计算后会缓存该值，这里如果判断 reducer 一致那么可以直接复用)
+        // 3. 如果没有 eagerState，那么重新执行 reducer
         // This update does have sufficient priority.
 
         if (newBaseQueueLast !== null) {
@@ -776,18 +806,22 @@ function updateReducer<S, I, A>(
       update = update.next;
     } while (update !== null && update !== first);
 
+    // 如果所有 baseQueue 都被执行，那么下一个baseState 即是这次算出来的 newState
     if (newBaseQueueLast === null) {
       newBaseState = newState;
     } else {
+      // 如果有未执行的 baseQueue，完成环链指针
       newBaseQueueLast.next = (newBaseQueueFirst: any);
     }
 
+    // 如果当前 newState 有变化，标记 wipReceivedUpdate
     // Mark that the fiber performed work, but only if the new state is
     // different from the current state.
     if (!is(newState, hook.memoizedState)) {
       markWorkInProgressReceivedUpdate();
     }
 
+    // 更新状态
     hook.memoizedState = newState;
     hook.baseState = newBaseState;
     hook.baseQueue = newBaseQueueLast;
@@ -818,6 +852,8 @@ function rerenderReducer<S, I, A>(
   const dispatch: Dispatch<A> = (queue.dispatch: any);
   const lastRenderPhaseUpdate = queue.pending;
   let newState = hook.memoizedState;
+
+  // rerender 就是将渲染阶段 dispatchAction 积累的 pending 继续计算合并到 newState 中
   if (lastRenderPhaseUpdate !== null) {
     // The queue doesn't persist past this render pass.
     queue.pending = null;
@@ -1661,6 +1697,7 @@ function rerenderOpaqueIdentifier(): OpaqueIDType | void {
 }
 
 function dispatchAction<S, A>(
+  // mount时对应的fiber，仅在mount阶段注入，同一个位置的 fiber current 和 alternate 引用始终不变，所以此 fiber 有可能对应 workInProgress 也有可能是 current
   fiber: Fiber,
   queue: UpdateQueue<S, A>,
   action: A,
@@ -1703,7 +1740,7 @@ function dispatchAction<S, A>(
   // 所以这个 fiber 有可能等于 currentRenderingFiber（说明当前渲染未结束时触发的，因为渲染完成后 fiber 为 current，不等于 workInProgress ，即 renderPhraseUpdate）
   // 也有可能不等于 currentRenderingFiber，说明上一轮渲染已 commit，这是下一轮 render 时触发的
   if (
-    // fiber 等于 workInProgress
+    // fiber 等于 workInProgress，说明上一次渲染的 fiber 和当前渲染的 fiber 还是同一个，即说明这是一个渲染中触发的更新
     fiber === currentlyRenderingFiber ||
     // TODO: 好像说不通？后面看看
     // currentlyRenderingFiber 一定是 workInProgress，如果 fiber.alternate 等于 workInProgress，说明传进来的 fiber 是 current
@@ -1805,6 +1842,7 @@ export const ContextOnlyDispatcher: Dispatcher = {
   unstable_isNewReconciler: enableNewReconciler,
 };
 
+// entry
 const HooksDispatcherOnMount: Dispatcher = {
   readContext,
 
@@ -1826,6 +1864,7 @@ const HooksDispatcherOnMount: Dispatcher = {
   unstable_isNewReconciler: enableNewReconciler,
 };
 
+// entry
 const HooksDispatcherOnUpdate: Dispatcher = {
   readContext,
 
@@ -1847,6 +1886,7 @@ const HooksDispatcherOnUpdate: Dispatcher = {
   unstable_isNewReconciler: enableNewReconciler,
 };
 
+// entry
 const HooksDispatcherOnRerender: Dispatcher = {
   readContext,
 
